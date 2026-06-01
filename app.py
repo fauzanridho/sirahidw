@@ -1249,13 +1249,23 @@ def page_select_data() -> None:
     date_range = st.date_input(
         "Rentang tanggal",
         value=(date_min.date(), date_max.date()) if pd.notna(date_min) and pd.notna(date_max) else None,
+        min_value=date_min.date() if pd.notna(date_min) else None,
+        max_value=date_max.date() if pd.notna(date_max) else None,
     )
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
+
+    start_date = end_date = None
+    if isinstance(date_range, (tuple, list)):
+        selected_dates = [date_value for date_value in date_range if date_value is not None]
+        if len(selected_dates) == 1:
+            start_date = end_date = selected_dates[0]
+            st.caption("Tanggal akhir belum dipilih. Preview sementara memakai satu tanggal yang dipilih.")
+        elif len(selected_dates) >= 2:
+            start_date, end_date = selected_dates[0], selected_dates[1]
     elif date_range:
         start_date = end_date = date_range
-    else:
-        start_date = end_date = None
+
+    if start_date is not None and end_date is not None and start_date > end_date:
+        start_date, end_date = end_date, start_date
 
     filtered = working.copy()
     if selected_stations:

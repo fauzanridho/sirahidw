@@ -329,6 +329,7 @@ def reset_derived_state() -> None:
         "best_params",
         "best_predictions",
         "final_estimates",
+        "target_points",
         "grid_df",
         "geotiff_bytes",
         "grid_png_bytes",
@@ -880,7 +881,11 @@ def value_to_color(value: float, vmin: float, vmax: float) -> str:
     return px.colors.sample_colorscale("Viridis", [float(np.clip(scaled, 0, 1))])[0]
 
 
-def make_station_map(period_data: pd.DataFrame, boundary_gdf: Optional[gpd.GeoDataFrame]) -> folium.Map:
+def make_station_map(
+    period_data: pd.DataFrame,
+    boundary_gdf: Optional[gpd.GeoDataFrame],
+    target_points: Optional[pd.DataFrame] = None,
+) -> folium.Map:
     center_lat = float(period_data["Latitude"].mean())
     center_lon = float(period_data["Longitude"].mean())
     fmap = folium.Map(location=[center_lat, center_lon], zoom_start=10, tiles="CartoDB positron")
@@ -918,13 +923,31 @@ def make_station_map(period_data: pd.DataFrame, boundary_gdf: Optional[gpd.GeoDa
             popup=folium.Popup(popup_html, max_width=280),
         ).add_to(fmap)
 
+    if target_points is not None and not target_points.empty:
+        for _, row in target_points.dropna(subset=["Longitude", "Latitude"]).iterrows():
+            estimate = parse_flexible_numeric(row.get("Curah_Hujan_Estimasi", np.nan))
+            estimate_text = f"{estimate:.3f}" if np.isfinite(estimate) else "-"
+            popup_html = (
+                f"<b>{row.get('Nama_Lokasi', 'Target')}</b><br>"
+                f"Longitude: {row['Longitude']:.6f}<br>"
+                f"Latitude: {row['Latitude']:.6f}<br>"
+                f"Estimasi curah hujan: {estimate_text}"
+            )
+            folium.Marker(
+                location=[row["Latitude"], row["Longitude"]],
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"Target: {row.get('Nama_Lokasi', 'Target')}",
+                icon=folium.Icon(color="red", icon="flag", prefix="fa"),
+            ).add_to(fmap)
+
     legend_html = """
     <div style="position: fixed; bottom: 24px; left: 24px; z-index: 9999; background: white;
         border: 1px solid #c7c7c7; padding: 10px 12px; font-size: 12px;">
         <b>Curah hujan</b><br>
         <span style="display:inline-block;width:12px;height:12px;background:#440154;"></span> Rendah<br>
         <span style="display:inline-block;width:12px;height:12px;background:#21918c;"></span> Sedang<br>
-        <span style="display:inline-block;width:12px;height:12px;background:#fde725;"></span> Tinggi
+        <span style="display:inline-block;width:12px;height:12px;background:#fde725;"></span> Tinggi<br>
+        <span style="display:inline-block;width:12px;height:12px;background:#d62728;"></span> Target
     </div>
     """
     fmap.get_root().html.add_child(folium.Element(legend_html))
@@ -965,6 +988,7 @@ def plot_grid_contour(
     period_data: pd.DataFrame,
     boundary_gdf: Optional[gpd.GeoDataFrame],
     title: str,
+    target_points: Optional[pd.DataFrame] = None,
 ):
     fig, ax = plt.subplots(figsize=(10, 7), dpi=120)
     finite_values = z_grid[np.isfinite(z_grid)]
@@ -989,6 +1013,32 @@ def plot_grid_contour(
     )
     for _, row in period_data.iterrows():
         ax.annotate(row["Nama_Stasiun"], (row["Longitude"], row["Latitude"]), fontsize=7, xytext=(3, 3), textcoords="offset points")
+
+    if target_points is not None and not target_points.empty:
+        valid_targets = target_points.dropna(subset=["Longitude", "Latitude"])
+        if not valid_targets.empty:
+            ax.scatter(
+                valid_targets["Longitude"],
+                valid_targets["Latitude"],
+                marker="*",
+                c="#d62728",
+                edgecolor="white",
+                linewidth=0.9,
+                s=140,
+                label="Target",
+                zorder=5,
+            )
+            for _, row in valid_targets.iterrows():
+                ax.annotate(
+                    str(row.get("Nama_Lokasi", "Target")),
+                    (row["Longitude"], row["Latitude"]),
+                    fontsize=8,
+                    fontweight="bold",
+                    color="#7f1d1d",
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                )
+
     ax.set_title(title)
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
@@ -1028,6 +1078,7 @@ def initialize_state() -> None:
         "best_params": None,
         "best_predictions": None,
         "final_estimates": None,
+        "target_points": None,
         "grid_df": None,
         "geotiff_bytes": None,
         "grid_png_bytes": None,
@@ -1217,8 +1268,9 @@ def page_upload_data() -> None:
             st.dataframe(stored.tail(200), width="stretch")
 
 
-def page_select_data() -> None:
-    st.subheader("Pilih Data")
+def page_select_data(show_title: bool = True) -> None:
+    if show_title:
+        st.subheader("Pilih Data")
     stored = load_persistent_rainfall_data()
     if stored.empty:
         st.info("Belum ada data tersimpan. Tambahkan data lewat menu Upload Data terlebih dahulu.")
@@ -1275,13 +1327,6 @@ def page_select_data() -> None:
         end_ts = pd.Timestamp(end_date)
         filtered = filtered.loc[(filtered["Tanggal"] >= start_ts) & (filtered["Tanggal"] <= end_ts)]
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Baris terpilih", f"{len(filtered):,}")
-    col2.metric("Stasiun terpilih", f"{filtered['Nama_Stasiun'].nunique():,}")
-    col3.metric("Nilai curah kosong", f"{filtered['Curah_Hujan'].isna().sum():,}")
-
-    st.dataframe(filtered.head(500), width="stretch")
-
     if st.button("Gunakan data terpilih untuk analisis", type="primary"):
         if filtered.empty:
             st.error("Data terpilih kosong. Ubah pilihan stasiun atau rentang tanggal.")
@@ -1290,11 +1335,20 @@ def page_select_data() -> None:
             output["Tanggal"] = output["Tanggal"].dt.strftime("%Y-%m-%d")
             label = f"{len(output):,} baris dari {output['Nama_Stasiun'].nunique():,} stasiun"
             set_active_raw_data(output, label)
-            st.success("Data terpilih sudah menjadi dataset aktif. Lanjutkan ke Pra-pemrosesan.")
+            st.success("Data terpilih sudah menjadi dataset aktif. Lanjutkan ke bagian Pra-pemrosesan.")
+
+    st.divider()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Baris terpilih", f"{len(filtered):,}")
+    col2.metric("Stasiun terpilih", f"{filtered['Nama_Stasiun'].nunique():,}")
+    col3.metric("Nilai curah kosong", f"{filtered['Curah_Hujan'].isna().sum():,}")
+
+    st.dataframe(filtered.head(500), width="stretch")
 
 
-def page_preprocessing() -> None:
-    st.subheader("Pra-pemrosesan Data")
+def page_preprocessing(show_title: bool = True) -> None:
+    if show_title:
+        st.subheader("Pra-pemrosesan Data")
     raw_df = require_dataframe("raw_df", "Pilih data dari master permanen atau tambahkan data lewat Upload Data terlebih dahulu.")
     if raw_df is None:
         stored = load_persistent_rainfall_data()
@@ -1317,8 +1371,9 @@ def page_preprocessing() -> None:
     st.dataframe(processed.head(200), width="stretch")
 
 
-def page_accumulation() -> None:
-    st.subheader("Akumulasi Data dan Pemilihan Periode")
+def page_accumulation(show_title: bool = True) -> None:
+    if show_title:
+        st.subheader("Akumulasi Data dan Pemilihan Periode")
     processed = require_dataframe("processed_df", "Lakukan pra-pemrosesan data terlebih dahulu.")
     if processed is None:
         return
@@ -1368,9 +1423,24 @@ def page_accumulation() -> None:
             st_folium(make_station_map(period_data, st.session_state.boundary_gdf), width=900, height=520)
 
 
+def page_data_workflow() -> None:
+    st.subheader("Pengolahan Data")
+    st.caption("Pilih dataset, jalankan pra-pemrosesan, lalu tentukan akumulasi dan periode analisis dalam satu alur.")
+
+    tab_select, tab_preprocess, tab_accumulate = st.tabs(
+        ["1. Pilih Data", "2. Pra-pemrosesan", "3. Akumulasi & Periode"]
+    )
+    with tab_select:
+        page_select_data(show_title=False)
+    with tab_preprocess:
+        page_preprocessing(show_title=False)
+    with tab_accumulate:
+        page_accumulation(show_title=False)
+
+
 def page_loocv() -> None:
     st.subheader("LOOCV Tuning IDW")
-    period_data = require_dataframe("period_data", "Pilih periode analisis pada halaman Akumulasi Data terlebih dahulu.")
+    period_data = require_dataframe("period_data", "Pilih periode analisis pada menu Pengolahan Data terlebih dahulu.")
     if period_data is None:
         return
 
@@ -1513,6 +1583,8 @@ def page_final_interpolation() -> None:
     tab1, tab2, tab3 = st.tabs(["Prediksi titik manual", "Prediksi beberapa titik", "Prediksi data missing"])
 
     with tab1:
+        target_name_raw = st.text_input("Nama lokasi target (opsional)", value="", placeholder="Contoh: Titik Uji 1")
+        target_name = target_name_raw.strip() or "Target Manual"
         col1, col2 = st.columns(2)
         target_lon = col1.number_input("Longitude target", value=float(reference["Longitude"].mean()), format="%.6f")
         target_lat = col2.number_input("Latitude target", value=float(reference["Latitude"].mean()), format="%.6f")
@@ -1531,7 +1603,7 @@ def page_final_interpolation() -> None:
             manual_result = pd.DataFrame(
                 [
                     {
-                        "Nama_Lokasi": "Target Manual",
+                        "Nama_Lokasi": target_name,
                         "Longitude": target_lon,
                         "Latitude": target_lat,
                         "Curah_Hujan_Asli": np.nan,
@@ -1541,8 +1613,10 @@ def page_final_interpolation() -> None:
                 ]
             )
             st.session_state.final_estimates = manual_result
+            st.session_state.target_points = manual_result[["Nama_Lokasi", "Longitude", "Latitude", "Curah_Hujan_Estimasi"]].copy()
             st.metric("Estimasi curah hujan", f"{estimate:.4f}" if np.isfinite(estimate) else "-")
             st.dataframe(manual_result, width="stretch")
+            st.caption("Titik target ini akan ditampilkan pada menu Peta Grid/Raster.")
 
     with tab2:
         target_file = st.file_uploader("Upload CSV titik target: Nama_Lokasi, Longitude, Latitude", type=["csv"], key="target_points_csv")
@@ -1567,7 +1641,9 @@ def page_final_interpolation() -> None:
                     output["Status"] = "Estimasi"
                     output = output[["Nama_Lokasi", "Longitude", "Latitude", "Curah_Hujan_Asli", "Curah_Hujan_Estimasi", "Status"]]
                     st.session_state.final_estimates = output
+                    st.session_state.target_points = output[["Nama_Lokasi", "Longitude", "Latitude", "Curah_Hujan_Estimasi"]].copy()
                     st.dataframe(output, width="stretch")
+                    st.caption("Titik target hasil upload akan ditampilkan pada menu Peta Grid/Raster.")
             except Exception as exc:
                 st.error(f"Gagal memproses titik target: {exc}")
 
@@ -1616,8 +1692,13 @@ def page_grid_raster() -> None:
     if st.session_state.best_params is None:
         st.warning("Parameter LOOCV belum tersedia. Jalankan LOOCV agar p dan k final berbasis validasi silang.")
 
-    st.write("Peta titik stasiun")
-    st_folium(make_station_map(period_data, st.session_state.boundary_gdf), width=920, height=460)
+    target_points = st.session_state.target_points
+    if target_points is not None and not target_points.empty:
+        with st.expander("Titik target yang akan ditampilkan di peta", expanded=False):
+            st.dataframe(target_points, width="stretch")
+
+    st.write("Peta titik stasiun dan target")
+    st_folium(make_station_map(period_data, st.session_state.boundary_gdf, target_points), width=920, height=460)
 
     col1, col2, col3 = st.columns(3)
     resolution = col1.select_slider("Resolusi grid", options=[50, 100, 150, 200], value=100)
@@ -1644,7 +1725,15 @@ def page_grid_raster() -> None:
             )
             period_label = period_data["Periode"].iloc[0] if "Periode" in period_data.columns and not period_data.empty else ""
             title = f"Interpolasi IDW Curah Hujan - {period_label}"
-            fig = plot_grid_contour(lon_grid, lat_grid, z_grid, period_data.dropna(subset=["Curah_Hujan_Agregat"]), st.session_state.boundary_gdf, title)
+            fig = plot_grid_contour(
+                lon_grid,
+                lat_grid,
+                z_grid,
+                period_data.dropna(subset=["Curah_Hujan_Agregat"]),
+                st.session_state.boundary_gdf,
+                title,
+                target_points,
+            )
             geotiff_bytes = export_geotiff(lon_grid, lat_grid, z_grid)
             png_bytes = fig_to_png_bytes(fig)
 
@@ -1671,7 +1760,9 @@ def page_grid_raster() -> None:
             period_data.dropna(subset=["Curah_Hujan_Agregat"]),
             st.session_state.boundary_gdf,
             context["title"],
+            target_points,
         )
+        st.session_state.grid_png_bytes = fig_to_png_bytes(fig)
         st.pyplot(fig)
         col1, col2, col3 = st.columns(3)
         col1.download_button("Download GeoTIFF", st.session_state.geotiff_bytes, "raster_idw.tif", mime="image/tiff")
@@ -1742,9 +1833,7 @@ def main() -> None:
         "Navigasi",
         [
             "Upload Data",
-            "Pilih Data",
-            "Pra-pemrosesan",
-            "Akumulasi Data",
+            "Pengolahan Data",
             "LOOCV Tuning IDW",
             "Interpolasi IDW Final",
             "Peta Grid/Raster",
@@ -1766,12 +1855,8 @@ def main() -> None:
 
     if menu == "Upload Data":
         page_upload_data()
-    elif menu == "Pilih Data":
-        page_select_data()
-    elif menu == "Pra-pemrosesan":
-        page_preprocessing()
-    elif menu == "Akumulasi Data":
-        page_accumulation()
+    elif menu == "Pengolahan Data":
+        page_data_workflow()
     elif menu == "LOOCV Tuning IDW":
         page_loocv()
     elif menu == "Interpolasi IDW Final":

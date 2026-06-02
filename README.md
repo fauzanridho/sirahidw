@@ -46,15 +46,16 @@ streamlit run app.py
 
 1. Buka menu **Upload Data** untuk mengunggah CSV/XLSX atau menambahkan data lewat **Input Manual**.
 2. Jika tersedia, unggah batas wilayah ZIP SHP, komponen SHP, atau GeoJSON.
-3. Masuk ke **Pilih Data** untuk memilih data dari master permanen berdasarkan stasiun dan rentang tanggal.
-4. Masuk ke **Pra-pemrosesan** untuk membersihkan kolom, mengubah tipe data, dan melihat statistik data.
-5. Masuk ke **Akumulasi Data**, pilih skala **Harian**, **Bulanan**, atau **Tahunan**.
-6. Pilih metode agregasi. Default aplikasi adalah **SUM** karena curah hujan merupakan data akumulatif.
-7. Pilih periode analisis: tanggal untuk harian, bulan dan tahun untuk bulanan, atau tahun untuk tahunan.
-8. Masuk ke **LOOCV Tuning IDW**, isi daftar nilai `p` dan `k`, lalu jalankan LOOCV.
-9. Gunakan parameter terbaik dari LOOCV pada **Interpolasi IDW Final** untuk prediksi titik manual, titik target CSV, atau data missing.
-10. Masuk ke **Peta Grid/Raster** untuk membuat peta titik, grid interpolasi, PNG, CSV grid, dan GeoTIFF.
-11. Ambil seluruh output pada menu **Unduh Hasil**.
+3. Masuk ke **Pengolahan Data**.
+4. Pada tab **Pilih Data**, pilih data dari master permanen berdasarkan stasiun dan rentang tanggal.
+5. Pada tab **Pra-pemrosesan**, bersihkan kolom, ubah tipe data, dan lihat statistik data.
+6. Pada tab **Akumulasi & Periode**, pilih skala **Harian**, **Bulanan**, atau **Tahunan**.
+7. Pilih metode agregasi. Default aplikasi adalah **SUM** karena curah hujan merupakan data akumulatif.
+8. Pilih periode analisis: tanggal untuk harian, bulan dan tahun untuk bulanan, atau tahun untuk tahunan.
+9. Masuk ke **LOOCV Tuning IDW**, isi daftar nilai `p` dan `k`, lalu jalankan LOOCV.
+10. Gunakan parameter terbaik dari LOOCV pada **Interpolasi IDW Final** untuk prediksi titik manual, titik target CSV, atau data missing.
+11. Masuk ke **Peta Grid/Raster** untuk membuat peta titik, grid interpolasi, PNG, CSV grid, dan GeoTIFF.
+12. Ambil seluruh output pada menu **Unduh Hasil**.
 
 ## Output
 
